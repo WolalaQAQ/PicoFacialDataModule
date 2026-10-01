@@ -6,7 +6,7 @@ A VRCFaceTracking module that connects to the headset-side bridge over UDP, usin
 
 ## Running
 
-1. Download the module ZIP from this fork's [Releases](https://github.com/WolalaQAQ/PicoFacialDataModule/releases), or build it from source (see below). Use this fork build — an upstream release does not speak the split protocol.
+1. Build the module ZIP from source with the steps below. Use this fork build — no fork release is published yet, and an upstream release does not speak the split protocol.
 2. In VRCFaceTracking go to Module Registry > Press the plus at the top.
 3. Select the ZIP you downloaded.
 4. Install and run the matching **PicoFacialBridge** split-protocol APK on the headset. Do not use the old `picofacialdatadaemon` or an upstream module ZIP with this fork. Root/Magisk is optional for enhanced capabilities, not required for normal tracking.
