@@ -1,21 +1,15 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using PicoFacialDataModule.Models;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using VRCFaceTracking;
+using VRCFaceTracking.Core.Params.Expressions;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace PicoFacialDataModule
 {
-    enum PicoFacialDataPayload
-    {
-        FT_INFO_START,
-        PXR_EYE_POSE_START = 380,
-        PXR_EYE_POSE_END = PXR_EYE_POSE_START + 156
-    }
-
     public class PicoFacialDataModule : ExtTrackingModule
     {
         private const int PORT = 9030;
@@ -28,9 +22,23 @@ namespace PicoFacialDataModule
 
         private const string STOP = "STOP";
 
+        // Fork-only split protocol: a one-byte tag followed by only the fields the module reads.
+        private const byte EYE_TAG = (byte)'E';
+        private const byte FACE_TAG = (byte)'F';
+        private const int EYE_FRAME_LENGTH = 1 + 72;
+        private const int FACE_FRAME_LENGTH = 1 + 224;
+
         private UdpClient? _udpClient;
         private IPEndPoint? _client;
         private bool _established;
+        private BridgeMode _mode = BridgeMode.Normal;
+
+        // Latest facial frame, kept so an eye frame can still resolve its blink fallback, EyeWide,
+        // EyeSquint and brow blendshapes (which only update at the slower facial rate).
+        private PicoFTInfo _face;
+        private bool _faceReceived;
+        // About six facial frames at 23 Hz; tolerates scheduling jitter, never replays indefinitely.
+        private const ulong FACE_CACHE_MAX_AGE_NS = 250_000_000;
 
 #pragma warning disable CS8618 // Because we didn't initialize in the constructor it is WHINING!
         private FaceTrackingParser _faceTrackingParser;
@@ -65,8 +73,9 @@ namespace PicoFacialDataModule
 
                 _moduleSettings = SettingsManager.GetOrCreate();
 
-                _faceTrackingParser = new FaceTrackingParser();
+                _faceTrackingParser = new FaceTrackingParser(_moduleSettings);
                 _eyeTrackingParser = new EyeTrackingParser(_moduleSettings);
+                LogShapeGain();
 
                 return (!_moduleSettings.DisableEyeTracking, !_moduleSettings.DisableFaceTracking);
             } catch (Exception e)
@@ -74,6 +83,19 @@ namespace PicoFacialDataModule
                 Logger.LogCritical($"Initialization failed with the following message: {e.Message}\n Stacktrace:\n{e.StackTrace}");
                 return (false, false);
             }
+        }
+
+        /// <summary>Logs the effective eye-shape gains once at startup, only when the stage is enabled.</summary>
+        private void LogShapeGain()
+        {
+            if (!_moduleSettings.ShapeGain.Enabled)
+                return;
+
+            var gain = new ShapeGain(_moduleSettings);
+            Logger.LogInformation($"Shape gain enabled: default={_moduleSettings.ShapeGain.DefaultGain} "
+                + $"EyeWideLeft={gain.GainFor(UnifiedExpressions.EyeWideLeft)} EyeWideRight={gain.GainFor(UnifiedExpressions.EyeWideRight)} "
+                + $"EyeSquintLeft={gain.GainFor(UnifiedExpressions.EyeSquintLeft)} EyeSquintRight={gain.GainFor(UnifiedExpressions.EyeSquintRight)} "
+                + $"(scaled weights clamp to {ShapeGain.MaxValue})");
         }
 
         public override void Update()
@@ -112,7 +134,7 @@ namespace PicoFacialDataModule
                 }
                 catch
                 {
-                    _established = false;
+                    ResetSession();
                 }
 
                 ProcessReply(result);
@@ -140,6 +162,13 @@ namespace PicoFacialDataModule
             if (result == null)
                 return;
 
+            // The bridge advertises its mode on a separate ASCII control datagram.
+            if (BridgeMode.TryParse(result, out var advertised))
+            {
+                UpdateMode(advertised);
+                return;
+            }
+
             // Keep-alive ping.
             if (result.Length == PING.Length + 1)
             {
@@ -147,20 +176,65 @@ namespace PicoFacialDataModule
                 return;
             }
 
-            if (result.Length < (int)PicoFacialDataPayload.PXR_EYE_POSE_END || result.Length > (int)PicoFacialDataPayload.PXR_EYE_POSE_END)
+            if (result.Length == FACE_FRAME_LENGTH && result[0] == FACE_TAG)
+            {
+                if (MemoryMarshal.TryRead<PicoFTInfo>(result.AsSpan(1), out var picoFTInfo))
+                {
+                    // Cache unconditionally: the eye parser reads blendshapes even when facial
+                    // expression output is disabled.
+                    _face = picoFTInfo;
+                    _faceReceived = true;
+
+                    if (!_moduleSettings!.DisableFaceTracking)
+                        _faceTrackingParser!.Parse(picoFTInfo);
+                }
+
+                return;
+            }
+
+            if (result.Length == EYE_FRAME_LENGTH && result[0] == EYE_TAG)
+            {
+                if (!_moduleSettings!.DisableEyeTracking
+                    && MemoryMarshal.TryRead<PxrEyePoseDataV2>(result.AsSpan(1), out var eyeData))
+                {
+                    ulong distance = eyeData.Timestamp >= _face.Timestamp
+                        ? eyeData.Timestamp - _face.Timestamp : _face.Timestamp - eyeData.Timestamp;
+                    var faceInfo = _faceReceived && distance <= FACE_CACHE_MAX_AGE_NS ? _face : default;
+
+                    _eyeTrackingParser!.Parse(eyeData, faceInfo, _mode);
+                }
+
+                return;
+            }
+        }
+
+        private void ResetSession()
+        {
+            _established = false;
+            _faceReceived = false;
+            _face = default;
+            _mode = BridgeMode.Normal;
+        }
+
+        /// <summary>
+        /// Stores the mode advertised by the bridge, logging and re-labelling the module when it changes.
+        /// </summary>
+        private void UpdateMode(BridgeMode advertised)
+        {
+            if (advertised.Enhance == _mode.Enhance
+                && advertised.Plugin == _mode.Plugin
+                && advertised.Rooted == _mode.Rooted
+                && advertised.GateOn == _mode.GateOn
+                && advertised.EnhanceModule == _mode.EnhanceModule)
                 return;
 
-            if (!MemoryMarshal.TryRead<PicoFTInfo>(result![(int)PicoFacialDataPayload.FT_INFO_START..(int)PicoFacialDataPayload.PXR_EYE_POSE_START], out var picoFTInfo))
-                return;
+            _mode = advertised;
 
-            if (!MemoryMarshal.TryRead<PxrEyePoseDataV2>(result![(int)PicoFacialDataPayload.PXR_EYE_POSE_START..], out var eyeData))
-                return;
+            Logger.LogInformation($"Bridge mode changed: {advertised}");
 
-            if (!_moduleSettings!.DisableFaceTracking)
-                _faceTrackingParser!.Parse(picoFTInfo);
-           
-            if (!_moduleSettings.DisableEyeTracking)
-                _eyeTrackingParser!.Parse(eyeData, picoFTInfo);
+            ModuleInformation.Name = advertised.Enhance
+                ? "Pico 4 P/E Facial Tracking Daemon (Enhanced)"
+                : "Pico 4 P/E Facial Tracking Daemon";
         }
 
         /// <summary>
@@ -170,6 +244,7 @@ namespace PicoFacialDataModule
         /// <returns></returns>
         private byte[] Start()
         {
+            ResetSession();
             IPEndPoint endpoint = new IPEndPoint(
                 string.IsNullOrEmpty(_moduleSettings.IP) ? IPAddress.Parse(MULTICAST_ADDRESS) : IPAddress.Parse(_moduleSettings.IP), 
                 PORT

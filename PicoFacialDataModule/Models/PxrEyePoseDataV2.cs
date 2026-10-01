@@ -20,26 +20,20 @@ namespace PicoFacialDataModule.Models
         PUPIL_DIAMETER_VALID = (1 << 11),
     };
 
+    /// <summary>
+    /// Compact eye frame carried by an <c>'E'</c> datagram: only the validity bits, gaze vectors,
+    /// openness and pupil diameters the module reads. The vendor's 3D gaze points, position guides
+    /// and foveated slots are not carried. Unlike the old 536-byte packet, <see cref="Timestamp"/>
+    /// is the real eye-service timestamp (the shared struct previously read zero padding).
+    /// </summary>
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public struct PxrEyePoseDataV2
     {
-        public uint Timestamp;
+        public ulong Timestamp;
 
         public EyePoseStatus LeftEyePoseStatus;
         public EyePoseStatus RightEyePoseStatus;
         public EyePoseStatus CombinedEyePoseStatus;
-
-        public float LeftEyeGazePointX;
-        public float LeftEyeGazePointY;
-        public float LeftEyeGazePointZ;
-
-        public float RightEyeGazePointX;
-        public float RightEyeGazePointY;
-        public float RightEyeGazePointZ;
-
-        public float CombinedEyeGazePointX;
-        public float CombinedEyeGazePointY;
-        public float CombinedEyeGazePointZ;
 
         public float LeftEyeGazeVectorX;
         public float LeftEyeGazeVectorY;
@@ -59,20 +53,6 @@ namespace PicoFacialDataModule.Models
         public float LeftEyePupilDilation;
         public float RightEyePupilDilation;
 
-        public float LeftEyePositionGuideX;
-        public float LeftEyePositionGuideY;
-        public float LeftEyePositionGuideZ;
-
-        public float RightEyePositionGuideX;
-        public float RightEyePositionGuideY;
-        public float RightEyePositionGuideZ;
-
-        public float FoveatedGazeDirectionX;
-        public float FoveatedGazeDirectionY;
-        public float FoveatedGazeDirectionZ;
-
-        public EyePoseStatus FoveatedGazeTrackingState;
-
         public override string ToString()
         {
             var sb = new StringBuilder();
@@ -83,45 +63,15 @@ namespace PicoFacialDataModule.Models
             sb.AppendLine($"RightEyePoseStatus: {(uint)RightEyePoseStatus:B8}");
             sb.AppendLine($"CombinedEyePoseStatus: {(uint)CombinedEyePoseStatus:B8}");
 
-            sb.AppendLine($"LeftEyeGazePointX: {LeftEyeGazePointX}");
-            sb.AppendLine($"LeftEyeGazePointY: {LeftEyeGazePointY}");
-            sb.AppendLine($"LeftEyeGazePointZ: {LeftEyeGazePointZ}");
-
-            sb.AppendLine($"RightEyeGazePointX: {RightEyeGazePointX}");
-            sb.AppendLine($"RightEyeGazePointY: {RightEyeGazePointY}");
-            sb.AppendLine($"RightEyeGazePointZ: {RightEyeGazePointZ}");
-
-            sb.AppendLine($"CombinedEyeGazePointX: {CombinedEyeGazePointX}");
-            sb.AppendLine($"CombinedEyeGazePointY: {CombinedEyeGazePointY}");
-            sb.AppendLine($"CombinedEyeGazePointZ: {CombinedEyeGazePointZ}");
-
-            sb.AppendLine($"LeftEyeGazeVectorX: {LeftEyeGazeVectorX}");
-            sb.AppendLine($"LeftEyeGazeVectorY: {LeftEyeGazeVectorY}");
-            sb.AppendLine($"LeftEyeGazeVectorZ: {LeftEyeGazeVectorZ}");
-
-            sb.AppendLine($"RightEyeGazeVectorX: {RightEyeGazeVectorX}");
-            sb.AppendLine($"RightEyeGazeVectorY: {RightEyeGazeVectorY}");
-            sb.AppendLine($"RightEyeGazeVectorZ: {RightEyeGazeVectorZ}");
-
-            sb.AppendLine($"CombinedEyeGazeVectorX: {CombinedEyeGazeVectorX}");
-            sb.AppendLine($"CombinedEyeGazeVectorY: {CombinedEyeGazeVectorY}");
-            sb.AppendLine($"CombinedEyeGazeVectorZ: {CombinedEyeGazeVectorZ}");
+            sb.AppendLine($"LeftEyeGazeVector: {LeftEyeGazeVectorX}, {LeftEyeGazeVectorY}, {LeftEyeGazeVectorZ}");
+            sb.AppendLine($"RightEyeGazeVector: {RightEyeGazeVectorX}, {RightEyeGazeVectorY}, {RightEyeGazeVectorZ}");
+            sb.AppendLine($"CombinedEyeGazeVector: {CombinedEyeGazeVectorX}, {CombinedEyeGazeVectorY}, {CombinedEyeGazeVectorZ}");
 
             sb.AppendLine($"LeftEyeOpenness: {LeftEyeOpenness}");
             sb.AppendLine($"RightEyeOpenness: {RightEyeOpenness}");
 
             sb.AppendLine($"LeftEyePupilDilation: {LeftEyePupilDilation}");
             sb.AppendLine($"RightEyePupilDilation: {RightEyePupilDilation}");
-
-            sb.AppendLine($"LeftEyePositionGuideX: {LeftEyePositionGuideX}");
-            sb.AppendLine($"LeftEyePositionGuideY: {LeftEyePositionGuideY}");
-            sb.AppendLine($"LeftEyePositionGuideZ: {LeftEyePositionGuideZ}");
-
-            sb.AppendLine($"FoveatedGazeDirectionX: {FoveatedGazeDirectionX}");
-            sb.AppendLine($"FoveatedGazeDirectionY: {FoveatedGazeDirectionY}");
-            sb.AppendLine($"FoveatedGazeDirectionZ: {FoveatedGazeDirectionZ}");
-
-            sb.AppendLine($"FoveatedGazeTrackingState: {(uint)FoveatedGazeTrackingState:B8}");
 
             return sb.ToString();
         }

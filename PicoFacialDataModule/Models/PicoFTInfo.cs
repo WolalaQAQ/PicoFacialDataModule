@@ -66,7 +66,11 @@ namespace PicoFacialDataModule.Models
         VIDEO_INPUT_FACE
     }
 
-    [InlineArray(72)]
+    /// <summary>
+    /// The 52 blendshape slots the module actually reads. The vendor buffer has 72, but slots
+    /// 52..71 are the audio-driven viseme block (always zero for this output) and are not sent.
+    /// </summary>
+    [InlineArray(52)]
     public struct BlendShapes
     {
         private float _element0;
@@ -77,24 +81,16 @@ namespace PicoFacialDataModule.Models
         }
     }
 
-    [InlineArray(10)]
-    public struct Float10
+    [InlineArray(2)]
+    public struct Float2
     {
         private float _element0;
-
-        public override string ToString()
-        {
-            var sb = new StringBuilder();
-
-            for (int i = 0; i < 10; i++)
-            {
-                sb.Append($"{this[i]}, ");
-            }
-
-            return sb.ToString();
-        }
     }
 
+    /// <summary>
+    /// Compact facial frame carried by a <c>'F'</c> datagram: timestamp, the 52 used blendshapes and
+    /// the eye/face video-validity flags. LaughingProb, EmotionProb and slots 52..71 are not carried.
+    /// </summary>
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public struct PicoFTInfo
     {
@@ -102,9 +98,7 @@ namespace PicoFacialDataModule.Models
 
         public BlendShapes BlendshapeWeight;
 
-        public Float10 VideoInputValid;
-        public float LaughingProb;
-        public Float10 EmotionProb;
+        public Float2 VideoInputValid;
 
         public override string ToString()
         {
@@ -117,9 +111,7 @@ namespace PicoFacialDataModule.Models
                 sb.AppendLine($"{blendshape.ToString()}: {BlendshapeWeight[(int)blendshape]}");
             }
 
-            sb.AppendLine($"VideoInputValid: [{VideoInputValid}]");
-            sb.AppendLine($"LaughingProb: {LaughingProb}");
-            sb.AppendLine($"EmotionProb: [{EmotionProb}]");
+            sb.AppendLine($"VideoInputValid: [{VideoInputValid[0]}, {VideoInputValid[1]}]");
 
             return sb.ToString();
         }

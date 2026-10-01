@@ -1,4 +1,4 @@
-﻿using PicoFacialDataModule.Models;
+using PicoFacialDataModule.Models;
 using VRCFaceTracking;
 using VRCFaceTracking.Core.Params.Expressions;
 
@@ -12,70 +12,104 @@ namespace PicoFacialDataModule
     public class EyeTrackingParser
     {
         private float eyePupilDilationEyeOpennessThreshold;
+        private readonly ShapeGain shapeGain;
 
         public EyeTrackingParser(ModuleSettings settings)
         {
             this.eyePupilDilationEyeOpennessThreshold = settings.TrackingSettings.eyePupilDilationEyeOpennessThreshold;
+            this.shapeGain = new ShapeGain(settings);
         }
 
-        public void Parse(PxrEyePoseDataV2 eyeData, PicoFTInfo picoFTInfo)
+        public void Parse(PxrEyePoseDataV2 eyeData, PicoFTInfo picoFTInfo, BridgeMode mode)
         {
             var eye = UnifiedTracking.Data.Eye;
             var blendshapes = picoFTInfo.BlendshapeWeight;
-            var face = new UnifiedExpressionsSetter();
+            var face = new UnifiedExpressionsSetter(shapeGain);
 
-            if (picoFTInfo.VideoInputValid[(int)VIDEO_INPUT_EYE] != 1)
-                return;
+            bool faceValid = picoFTInfo.VideoInputValid[(int)VIDEO_INPUT_EYE] == 1;
+            bool combinedValid = eyeData.CombinedEyePoseStatus.HasFlag(GAZE_VECTOR_VALID);
 
             #region LEFT EYE
 
-            if (eyeData.LeftEyePoseStatus.HasFlag(EYE_GAZE_VECTOR_VALID))
-            {
-                eye.Left.Gaze.x = eyeData.LeftEyeGazeVectorX;
-                eye.Left.Gaze.y = eyeData.LeftEyeGazeVectorY;
+            // Per-eye gaze is only usable when the bridge runs in enhanced mode AND this eye is gated open.
+            bool leftPerEye = mode.Enhance && eyeData.LeftEyePoseStatus.HasFlag(EYE_GAZE_VECTOR_VALID);
 
-                eye.Left.Openness = eyeData.LeftEyeOpenness;
-            } else // Fallback
+            if (leftPerEye || combinedValid)
             {
-                eye.Left.Gaze.x = eyeData.CombinedEyeGazeVectorX;
-                eye.Left.Gaze.y = eyeData.CombinedEyeGazeVectorY;
-
-                eye.Left.Openness = 1f - blendshapes[EyeBlinkL];
+                eye.Left.Gaze.x = leftPerEye ? eyeData.LeftEyeGazeVectorX : eyeData.CombinedEyeGazeVectorX;
+                eye.Left.Gaze.y = leftPerEye ? eyeData.LeftEyeGazeVectorY : eyeData.CombinedEyeGazeVectorY;
             }
 
-            if (eyeData.LeftEyePupilDilation == 0)
-                eyeData.LeftEyePupilDilation = 35f;
+            eye.Left.Openness = eyeData.LeftEyePoseStatus.HasFlag(EYE_OPENNESS_VALID)
+                ? eyeData.LeftEyeOpenness
+                : faceValid ? 1f - blendshapes[EyeBlinkL] : eye.Left.Openness;
 
-            if (
-                eyeData.LeftEyeOpenness > eyePupilDilationEyeOpennessThreshold
-            )
-                eye.Left.PupilDiameter_MM = eyeData.LeftEyePupilDilation / 10;
+            bool leftPupilValid = eyeData.LeftEyePoseStatus.HasFlag(PUPIL_DIAMETER_VALID);
+            float leftDilation = eyeData.LeftEyePupilDilation;
+
+            // Legacy fallback (fixed 3.5 mm): only outside enhanced mode, when real pupil data is unavailable.
+            if (leftDilation == 0 && !leftPupilValid && !mode.Enhance)
+                leftDilation = 35f;
+
+            // Enhanced mode trusts the vendor's PUPIL_DIAMETER_VALID bit. The openness threshold is a
+            // stock-era proxy (the stock module never read 0x800): measured, a relaxed eye sits around
+            // 0.63-0.69, so the 0.8 gate blocked real pupil almost all the time and only let it through
+            // when the user widened the eyes. Normal mode keeps the old gate (its pupil is the fake 3.5 mm).
+            bool leftPupilWritable = mode.Enhance
+                ? leftPupilValid
+                : eyeData.LeftEyeOpenness > eyePupilDilationEyeOpennessThreshold;
+
+            if (leftPupilWritable && leftDilation > 0)
+                eye.Left.PupilDiameter_MM = leftDilation / 10;
 
             #endregion
 
             #region RIGHT EYE
 
-            if (eyeData.LeftEyePoseStatus.HasFlag(EYE_GAZE_VECTOR_VALID))
-            {
-                eye.Right.Gaze.x = eyeData.RightEyeGazeVectorX;
-                eye.Right.Gaze.y = eyeData.RightEyeGazeVectorY;
+            bool rightPerEye = mode.Enhance && eyeData.RightEyePoseStatus.HasFlag(EYE_GAZE_VECTOR_VALID);
 
-                eye.Right.Openness = eyeData.RightEyeOpenness;
-            } else // Fallback
+            if (rightPerEye || combinedValid)
             {
-                eye.Right.Gaze.x = eyeData.CombinedEyeGazeVectorX;
-                eye.Right.Gaze.y = eyeData.CombinedEyeGazeVectorY;
-
-                eye.Right.Openness = 1f - blendshapes[EyeBlinkR];
+                eye.Right.Gaze.x = rightPerEye ? eyeData.RightEyeGazeVectorX : eyeData.CombinedEyeGazeVectorX;
+                eye.Right.Gaze.y = rightPerEye ? eyeData.RightEyeGazeVectorY : eyeData.CombinedEyeGazeVectorY;
             }
 
-            if (eyeData.RightEyePupilDilation == 0)
-                eyeData.RightEyePupilDilation = 35f;
+            eye.Right.Openness = eyeData.RightEyePoseStatus.HasFlag(EYE_OPENNESS_VALID)
+                ? eyeData.RightEyeOpenness
+                : faceValid ? 1f - blendshapes[EyeBlinkR] : eye.Right.Openness;
 
-            if (
-                eyeData.RightEyeOpenness > eyePupilDilationEyeOpennessThreshold
-            )
-                eye.Right.PupilDiameter_MM = eyeData.RightEyePupilDilation / 10;
+            bool rightPupilValid = eyeData.RightEyePoseStatus.HasFlag(PUPIL_DIAMETER_VALID);
+            float rightDilation = eyeData.RightEyePupilDilation;
+
+            if (rightDilation == 0 && !rightPupilValid && !mode.Enhance)
+                rightDilation = 35f;
+
+            bool rightPupilWritable = mode.Enhance
+                ? rightPupilValid
+                : eyeData.RightEyeOpenness > eyePupilDilationEyeOpennessThreshold;
+
+            if (rightPupilWritable && rightDilation > 0)
+                eye.Right.PupilDiameter_MM = rightDilation / 10;
+
+            #endregion
+
+            #region Eye Widen
+
+            // Only the facial-derived fields depend on a fresh, valid F sample. E is independent.
+            if (!faceValid)
+                return;
+
+            // ARKit eyeWide is one of the face model's eye blendshapes and reaches the bridge in the
+            // facial prefix, so it is available without opening the per-eye gate. Without this mapping
+            // the widen shapes stay 0 and an avatar can only move between closed and open eyes.
+            face[EyeWideLeft] = blendshapes[EyeWideL];
+            face[EyeWideRight] = blendshapes[EyeWideR];
+
+            // Eye squint is the other eye blendshape the model provides and the module was dropping.
+            // VRCFT uses it for v2/EyeSquint(EyesSquint) and, in the legacy lid params, for the
+            // squeeze term subtracted from the expanded eyelid.
+            face[EyeSquintLeft] = blendshapes[EyeSquintL];
+            face[EyeSquintRight] = blendshapes[EyeSquintR];
 
             #endregion
 

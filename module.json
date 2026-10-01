@@ -1,11 +1,11 @@
 {
   "ModuleId": "61ee1324-fd45-42f1-9636-8e28717cf6db",
-  "Version": "0.1-beta",
+  "Version": "0.1-beta-split-fix1",
   "AuthorName": "thoricelli",
   "ModuleName": "Pico Facial Data Module",
-  "ModuleDescription": "VRCFaceTracking module for the picofacialdatadaemon",
-  "UsageInstructions": "Install the picofacialdatadaemon as a Magisk module, or execute it manually.",
-  "DownloadUrl": "https://github.com/thoricelli/PicoFacialDataModule/releases/download/v0.1-beta/PicoFacialDataModule.zip",
-  "ModulePageUrl": "https://github.com/thoricelli/PicoFacialDataModule",
+  "ModuleDescription": "Split-protocol fork of PicoFacialDataModule for the PicoFacialBridge E/F bridge; incompatible with the upstream daemon.",
+  "UsageInstructions": "Use the matching split-protocol PicoFacialBridge APK. This fork replaces the upstream PicoFacialDataModule; do not install both. Root is optional.",
+  "DownloadUrl": "",
+  "ModulePageUrl": "https://github.com/WolalaQAQ/PicoFacialDataModule",
   "DllFileName": "PicoFacialDataModule.dll"
 }

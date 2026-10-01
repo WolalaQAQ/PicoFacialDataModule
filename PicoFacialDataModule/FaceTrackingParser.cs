@@ -9,13 +9,20 @@ namespace PicoFacialDataModule
 
     public class FaceTrackingParser
     {
+        private readonly ShapeGain shapeGain;
+
+        public FaceTrackingParser(ModuleSettings settings)
+        {
+            this.shapeGain = new ShapeGain(settings);
+        }
+
         public void Parse(PicoFTInfo picoFTInfo)
         {
             if (picoFTInfo.VideoInputValid[(int)VIDEO_INPUT_FACE] != 1)
                 return;
 
             var blendshapes = picoFTInfo.BlendshapeWeight;
-            var face = new UnifiedExpressionsSetter();
+            var face = new UnifiedExpressionsSetter(shapeGain);
 
             // Taken from ALVR.
 
